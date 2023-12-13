@@ -2,109 +2,97 @@ package a03a.e1;
 
 import java.util.*;
 import java.util.function.*;
+import java.util.stream.*;
 
 public class ParserFactoryImpl implements ParserFactory {
 
     @Override
-    public <X> Parser<X> fromFinitePossibilities(Set<List<X>> acceptedSequences) {
+    public <X> Parser<X> fromFinitePossibilities(final Set<List<X>> acceptedSequences) {
         return new Parser<X>() {
             private final List<List<X>> sequences = new ArrayList<>(acceptedSequences);
 
             @Override
             public boolean accept(final Iterator<X> iterator) {
-                final List<Integer> validSequences = new ArrayList<>();
-                for(int i = 0; i < sequences.size(); i++) {
-                    validSequences.add(i);
-                }
-                int index = 0;
-                while(iterator.hasNext() && !validSequences.isEmpty()) {
-                    final var el = iterator.next();
-                    /* iterate trought all list */
-                    System.out.println(index);
-                    final var it = validSequences.iterator();
-                    while(it.hasNext()) {
-                        final var list = this.sequences.get(it.next());
-                        if(index < list.size()) {
-                            if(!list.get(index).equals(el)) {
-                                it.remove();
-                            }
-                        } else {
-                            it.remove();
+                final Iterable<X> iterable = () -> iterator;
+                final List<X> list = StreamSupport.stream(iterable.spliterator(), false).toList();
+                return sequences.contains(list);
+            }
+
+        };
+    }
+
+    @Override
+    public <X> Parser<X> fromGraph(final X x0, final Set<Pair<X, X>> transitions, final Set<X> acceptanceInputs) {
+        return fromParserWithInitial(
+            x0,
+            new Parser<X>() {
+                private final Set<Pair<X, X>> trans = transitions;
+                private final Set<X> inputs = acceptanceInputs;
+
+                @Override
+                public boolean accept(final Iterator<X> iterator) {
+                    X prev = x0;
+                    while (iterator.hasNext()) {
+                        final X el = iterator.next();
+                        if (!trans.contains(makePair(prev, el))) {
+                            return false;
                         }
+                        prev = el;
                     }
-                    index++;
+                    return inputs.contains(prev);
                 }
-                final var finalIndex = index;
-                return !validSequences.stream()
-                    .map(i -> sequences.get(i))
-                    .filter(list -> list.size() == finalIndex)
-                    .toList()
-                    .isEmpty();
+            }
+        );
+    }
+
+    @Override
+    public <X> Parser<X> fromIteration(final X x0, final Function<X, Optional<X>> next) {
+        return new Parser<X>() {
+            private X number = x0;
+            private final Function<X, Optional<X>> getNext = next;
+
+            @Override
+            public boolean accept(final Iterator<X> iterator) {
+                Optional<X> optional = Optional.of(number);
+                while (iterator.hasNext() && optional.isPresent()) {
+                    number = optional.get();
+                    if(!iterator.next().equals(number)) {
+                        return false;
+                    }
+                    optional = getNext.apply(number);
+                }
+                return true;
             }
             
         };
     }
 
     @Override
-    public <X> Parser<X> fromGraph(X x0, Set<Pair<X, X>> transitions, Set<X> acceptanceInputs) {
-        return new Parser<X>() {
-            private final Set<Pair<X, X>> trans = transitions;
-            private final Set<X> inputs = acceptanceInputs;
-            private int X firstX = x0;
-
-            @Override
-            public boolean accept(final Iterator<X> iterator) {
-                boolean second = false;
-                if(!iterator.hasNext() || iterator.next() != x0) {
-                    return false;
-                }
-                X lastEl = null;
-                while(iterator.hasNext()) {
-                    final X el = iterator.next();
-                    System.out.println(el + " " + second);
-                    final boolean localSec = second;
-                    /* filter pairs */
-                    if(
-                        trans.stream()
-                            .filter(pair -> {
-                                final var e = localSec ? pair.getY() : pair.getX();
-                                return e.equals(el);
-                            })
-                            .toList()
-                            .isEmpty()
-                    ) {
-                        return inputs.contains(el);
-                    }
-                    second = !second;
-                    lastEl = el;
-                }
-                System.out.println("AWDAWDAWD " + lastEl);
-                return inputs.contains(lastEl);
-            }
-        };
-    }
-
-    @Override
-    public <X> Parser<X> fromIteration(X x0, Function<X, Optional<X>> next) {
-        // TODO Auto-generated method stub
-        throw new UnsupportedOperationException("Unimplemented method 'fromIteration'");
-    }
-
-    @Override
-    public <X> Parser<X> recursive(Function<X, Optional<Parser<X>>> nextParser, boolean isFinal) {
+    public <X> Parser<X> recursive(final Function<X, Optional<Parser<X>>> nextParser, final boolean isFinal) {
         return new Parser<X>() {
             private Function<X, Optional<Parser<X>>> parser = nextParser;
 
             @Override
             public boolean accept(final Iterator<X> iterator) {
-                if(!iterator.hasNext()) {
+                if (!iterator.hasNext()) {
                     return isFinal;
                 }
-                /* use nextParser */
-                final var el = iterator.next();
-                final var newParser = parser.apply(el);
-                if(newParser.isPresent()) {
-                    return newParser.get().accept(iterator);
+                final var opt = parser.apply(iterator.next());
+                return opt.isPresent() ? opt.get().accept(iterator) : false;
+            }
+
+        };
+    }
+
+    @Override
+    public <X> Parser<X> fromParserWithInitial(final X x, final Parser<X> parser) {
+        return new Parser<X>() {
+            private X first = x;
+
+            @Override
+            public boolean accept(final Iterator<X> iterator) {
+                if(iterator.hasNext() && iterator.next().equals(first)) {
+                    return parser.accept(iterator);
                 }
                 return false;
             }
@@ -112,10 +100,8 @@ public class ParserFactoryImpl implements ParserFactory {
         };
     }
 
-    @Override
-    public <X> Parser<X> fromParserWithInitial(X x, Parser<X> parser) {
-        // TODO Auto-generated method stub
-        throw new UnsupportedOperationException("Unimplemented method 'fromParserWithInitial'");
+    private <X> Pair<X,X> makePair(final X x, final X y) {
+        return new Pair<X,X>(x, y);
     }
 
 }
